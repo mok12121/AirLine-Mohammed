@@ -49,7 +49,10 @@ if isinstance(date_range, list) and len(date_range) == 2:
     start_date, end_date = date_range
     filtered_df = filtered_df[(filtered_df['Date'] >= pd.to_datetime(start_date)) & (filtered_df['Date'] <= pd.to_datetime(end_date))]
 
-st.markdown(f"### 📆 Showing data from {start_date.strftime('%d/%m/%Y')} to {end_date.strftime('%d/%m/%Y')}")
+if 'start_date' in locals() and 'end_date' in locals():
+    st.markdown(f"### 📆 Showing data from {start_date.strftime('%d/%m/%Y')} to {end_date.strftime('%d/%m/%Y')}")
+else:
+    st.markdown("### 📆 Showing data for the selected period")
 
 # Turnaround Time Chart
 st.header("🛬 Turnaround Time – X̄ & R Chart")
