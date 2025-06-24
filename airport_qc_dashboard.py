@@ -3,88 +3,99 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
 
 # Config
 st.set_page_config(layout="wide")
 st.title("🛫 King Salman Airport – Real-Time Quality Control Dashboard")
 
-# Time reference
-now = datetime.now()
-dates = pd.date_range(now - timedelta(days=30), periods=31)
-
-# Simulated Airlines and Gates
+# Simulate a full year date range
+np.random.seed(42)
+dates = pd.date_range(start="2025-01-01", end="2025-12-31", freq="D")
 airlines = ['Saudia', 'Flynas', 'Flyadeal', 'Emirates']
 gates = [f"G{i}" for i in range(1, 11)]
 
-# Helper: Generate Control Limits
-def control_limits(series):
-    mean = series.mean()
-    std = series.std()
-    return mean, mean + 3*std, mean - 3*std
+# Simulate full operational dataset
+data = []
+for date in dates:
+    for airline in airlines:
+        record = {
+            'Date': date,
+            'Airline': airline,
+            'Gate': np.random.choice(gates),
+            'TurnaroundTime': np.random.normal(40, 5),
+            'BagSLA': np.random.normal(18, 3),
+            'QueueTime': np.random.normal(8, 2),
+            'ScanFailures': np.random.binomial(1000, 0.01),
+            'TotalBags': 1000,
+            'PaxFlow': np.random.poisson(20),
+            'DelayCause': np.random.choice(['Technical', 'Crew', 'Weather', 'Security', 'Catering'], p=[0.4,0.2,0.15,0.15,0.1])
+        }
+        data.append(record)
+df = pd.DataFrame(data)
 
-# Section 1: Turnaround Time – Xbar-R Chart
-st.header("🛬 Flight Turnaround Time – X̄ & R Chart")
-tat = pd.Series(np.random.normal(40, 6, 50))
-mean, ucl, lcl = control_limits(tat)
-fig1 = px.line(y=tat, title="Turnaround Time (min)")
-fig1.add_hline(y=mean, line_dash="dash", line_color="green")
-fig1.add_hline(y=ucl, line_dash="dash", line_color="red")
-fig1.add_hline(y=lcl, line_dash="dash", line_color="red")
+# Sidebar filters
+st.sidebar.header("🔍 Filters")
+selected_airline = st.sidebar.selectbox("Airline", ['All'] + airlines)
+selected_gates = st.sidebar.multiselect("Gates", options=gates, default=gates)
+date_range = st.sidebar.date_input("Select Date Range", [datetime(2025,1,1), datetime(2025,12,31)])
+
+# Apply filters
+filtered_df = df.copy()
+if selected_airline != 'All':
+    filtered_df = filtered_df[filtered_df['Airline'] == selected_airline]
+filtered_df = filtered_df[filtered_df['Gate'].isin(selected_gates)]
+if isinstance(date_range, list) and len(date_range) == 2:
+    start_date, end_date = date_range
+    filtered_df = filtered_df[(filtered_df['Date'] >= pd.to_datetime(start_date)) & (filtered_df['Date'] <= pd.to_datetime(end_date))]
+
+st.markdown(f"### 📆 Showing data from {start_date.strftime('%d/%m/%Y')} to {end_date.strftime('%d/%m/%Y')}")
+
+# Turnaround Time Chart
+st.header("🛬 Turnaround Time – X̄ & R Chart")
+fig1 = px.line(filtered_df, x='Date', y='TurnaroundTime', color='Airline', markers=True, title="Avg Turnaround Time")
 st.plotly_chart(fig1, use_container_width=True)
 
-# Section 2: Baggage SLA – CUSUM Chart
+# Baggage SLA – CUSUM
 st.header("🎒 Baggage Delivery SLA – CUSUM")
-slas = np.random.normal(18, 4, 100)
-cusum = np.cumsum(slas - np.mean(slas))
-fig2 = px.line(y=cusum, title="CUSUM of Baggage Delivery Time")
+sla_series = filtered_df.groupby('Date')['BagSLA'].mean()
+cusum = np.cumsum(sla_series - sla_series.mean())
+fig2 = px.line(x=sla_series.index, y=cusum, title="CUSUM – Baggage SLA")
 st.plotly_chart(fig2, use_container_width=True)
 
-# Section 3: Security Queue – EWMA Chart
-st.header("👮 Security Queue Wait Time – EWMA")
+# Security Queue – EWMA
+st.header("👮 Security Queue Time – EWMA")
 alpha = 0.3
-waits = np.random.normal(8, 2, 100)
-ewma = [waits[0]]
-for i in range(1, len(waits)):
-    ewma.append(alpha * waits[i] + (1 - alpha) * ewma[-1])
-fig3 = px.line(y=ewma, title="EWMA – Security Wait Time (min)")
+queue_series = filtered_df.groupby('Date')['QueueTime'].mean()
+ewma = [queue_series.iloc[0]]
+for i in range(1, len(queue_series)):
+    ewma.append(alpha * queue_series.iloc[i] + (1 - alpha) * ewma[-1])
+fig3 = px.line(x=queue_series.index, y=ewma, title="EWMA – Queue Time")
 st.plotly_chart(fig3, use_container_width=True)
 
-# Section 4: Gate Utilization – Bar Chart
-st.header("✈️ Gate Utilization – Flights Per Gate")
-gate_counts = pd.Series(np.random.randint(10, 40, len(gates)), index=gates)
-fig4 = px.bar(gate_counts, title="Flights Handled Per Gate Today")
+# Gate Utilization
+st.header("✈️ Gate Utilization")
+gate_util = filtered_df['Gate'].value_counts().sort_index()
+fig4 = px.bar(x=gate_util.index, y=gate_util.values, title="Flights per Gate")
 st.plotly_chart(fig4, use_container_width=True)
 
-# Section 5: Baggage Scan Failures – P-Chart
-st.header("🧳 Baggage Scan Failures – P-Chart")
-total_bags = np.random.randint(950, 1050, 30)
-fails = np.random.binomial(n=total_bags, p=0.01)
-p_rates = fails / total_bags
-fig5 = px.line(y=p_rates, title="Failure Rate Per 1000 Bags")
+# Baggage Scan Failures – P-chart
+st.header("🧳 Scan Failures – P-Chart")
+daily = filtered_df.groupby('Date')[['ScanFailures', 'TotalBags']].sum()
+p_rate = daily['ScanFailures'] / daily['TotalBags']
+fig5 = px.line(x=daily.index, y=p_rate, title="Scan Failure Rate per Day")
 st.plotly_chart(fig5, use_container_width=True)
 
-# Section 6: Passenger Flow – Real-Time Entries
-st.header("🧍 Passenger Entry Flow – Moving Average")
-pax = pd.Series(np.random.poisson(20, 60))
-pax_ma = pax.rolling(window=5).mean()
-fig6 = px.line(y=pax_ma, title="Passenger Entries Per Minute (5-min MA)")
+# Passenger Flow
+st.header("🧍 Passenger Flow – Moving Average")
+pax_series = filtered_df.groupby('Date')['PaxFlow'].sum().rolling(window=3).mean()
+fig6 = px.line(x=pax_series.index, y=pax_series.values, title="Passenger Flow (3-day MA)")
 st.plotly_chart(fig6, use_container_width=True)
 
-# Section 7: Delay Types – Pareto Chart
-st.header("📉 Delay Incident Analysis – Pareto Chart")
-delay_causes = {
-    'Technical': 24,
-    'Crew': 17,
-    'Weather': 8,
-    'Security': 5,
-    'Catering': 3
-}
-delay_df = pd.DataFrame(delay_causes.items(), columns=['Cause', 'Count'])
-delay_df.sort_values(by='Count', ascending=False, inplace=True)
-fig7 = px.bar(delay_df, x='Cause', y='Count', title="Top Delay Causes")
+# Delay Types – Pareto Chart
+st.header("📉 Delay Causes – Pareto Chart")
+delay_counts = filtered_df['DelayCause'].value_counts()
+fig7 = px.bar(x=delay_counts.index, y=delay_counts.values, title="Top Delay Causes")
 st.plotly_chart(fig7, use_container_width=True)
 
-st.markdown("---")
-st.success("✅ Dashboard running on simulated data. Hook into real sources via API to go live.")
+st.success("✅ Dashboard running on date-filtered, categorized simulated operational data.")
