@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 # Simulate fake airline operations data
 np.random.seed(42)
 dates = pd.date_range(datetime.today() - timedelta(days=30), periods=31)
-airlines = ['Saudia', 'Flynas', 'Flyadeal', 'Emirates', 'Qatar Airways']
+airlines = ['Saudia', 'Flynas', 'ALKANAANI AIR ', 'Emirates', 'Qatar Airways']
 
 data = {
     'Date': np.tile(dates, len(airlines)),
